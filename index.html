@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+<title>SuperQuiz Online Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+
+<style>
+  /* --- DESIGN SYSTEM (Similaire v2) --- */
+  :root{ --primary: #6366f1; --primary-dark: #4f46e5; --bg-grad: linear-gradient(135deg, #667eea 0%, #764ba2 100%); --glass: rgba(255, 255, 255, 0.95); --text: #1f2937; }
+  body { margin:0; font-family: 'Outfit', sans-serif; background: var(--bg-grad); min-height: 100vh; color: var(--text); }
+  .container { max-width: 800px; margin: 40px auto; width: 95%; }
+  .card { background: var(--glass); padding: 25px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); margin-bottom: 20px; animation: slideUp 0.4s ease; }
+  @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+  
+  /* UI Elements */
+  h1,h2,h3 { margin:0 0 15px 0; }
+  .btn { padding: 12px 24px; border-radius: 12px; border: none; cursor: pointer; font-weight: 700; font-family: inherit; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; width: 100%; justify-content: center; margin-bottom: 10px; }
+  .btn:hover { transform: translateY(-2px); }
+  .btn.primary { background: var(--primary); color: white; }
+  .btn.secondary { background: #ec4899; color: white; }
+  .btn.ghost { background: transparent; border: 2px solid #ddd; color: #666; }
+  input, select, textarea { width: 100%; padding: 15px; border-radius: 12px; border: 2px solid #eee; margin-bottom: 15px; font-family: inherit; font-size: 1rem; box-sizing: border-box; }
+  input:focus { border-color: var(--primary); outline: none; }
+  
+  .hidden { display: none !important; }
+  .flex { display: flex; gap: 10px; align-items: center; }
+  .space-between { justify-content: space-between; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+
+  /* Auth Tabs */
+  .auth-tabs { display: flex; margin-bottom: 20px; background: #eee; padding: 5px; border-radius: 15px; }
+  .auth-tab { flex: 1; text-align: center; padding: 10px; cursor: pointer; border-radius: 10px; font-weight: 600; color: #666; }
+  .auth-tab.active { background: white; color: var(--primary); box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+
+  /* Live UI */
+  .live-code-box { font-size: 2.5rem; font-weight: 800; letter-spacing: 5px; color: var(--primary); text-align: center; border: 3px dashed var(--primary); padding: 10px; border-radius: 15px; margin: 20px 0; background: rgba(99, 102, 241, 0.1); }
+  .answer-btn { padding: 20px; text-align: left; background: white; border: 2px solid #eee; border-radius: 12px; font-size: 1.1rem; cursor: pointer; transition: 0.2s; }
+  .answer-btn:hover { border-color: var(--primary); }
+  .answer-btn.selected { background: var(--primary); color: white; border-color: var(--primary); }
+  
+  #toasts { position: fixed; top: 20px; right: 20px; z-index: 999; }
+  .toast { background: white; padding: 15px 25px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); margin-bottom: 10px; font-weight: 600; border-left: 5px solid var(--primary); animation: slideIn 0.3s; }
+  @keyframes slideIn { from{transform:translateX(100%)}to{transform:translateX(0)} }
+</style>
+</head>
+<body>
+
+<div id="toasts"></div>
+
+<div class="container">
+    <header class="flex space-between" style="margin-bottom:30px; color:white;">
+        <div style="font-size:1.5rem; font-weight:800;"><i class="ph ph-lightning-fill"></i> SuperQuiz Online</div>
+        <button id="btn-logout" class="hidden btn ghost" style="width:auto; color:white; border-color:rgba(255,255,255,0.3)">Déconnexion</button>
+    </header>
+
+    <section id="view-auth" class="card center">
+        <h2>Bienvenue</h2>
+        <p class="muted">Connecte-toi pour accéder aux Quiz et au Live.</p>
+        
+        <div class="auth-tabs">
+            <div class="auth-tab active" id="tab-login">Connexion</div>
+            <div class="auth-tab" id="tab-register">Inscription</div>
+        </div>
+
+        <form id="auth-form">
+            <input type="email" id="auth-email" placeholder="Email (ex: prof@ecole.com)" required>
+            <input type="password" id="auth-pass" placeholder="Mot de passe" required>
+            
+            <div id="register-fields" class="hidden">
+                <input type="text" id="auth-name" placeholder="Nom complet">
+                <select id="auth-role">
+                    <option value="student">Élève</option>
+                    <option value="teacher">Professeur</option>
+                </select>
+            </div>
+            
+            <button type="submit" class="btn primary">Valider</button>
+        </form>
+    </section>
+
+    <section id="view-teacher" class="card hidden">
+        <div class="flex space-between">
+            <h2>Espace Professeur</h2>
+            <div class="muted" id="teacher-name-display"></div>
+        </div>
+        <hr style="border:0; border-top:1px solid #eee; margin:20px 0;">
+        
+        <div class="grid">
+            <button id="btn-create-quiz" class="btn secondary"><i class="ph ph-plus-circle"></i> Nouveau Quiz</button>
+            <button id="btn-refresh-list" class="btn ghost"><i class="ph ph-arrows-clockwise"></i> Actualiser</button>
+        </div>
+
+        <h3 style="margin-top:30px">Mes Quiz</h3>
+        <div id="teacher-quiz-list">Chargement...</div>
+    </section>
+
+    <section id="view-student" class="card hidden">
+        <h2>Espace Élève</h2>
+        <p>Rejoins un cours en direct lancé par ton professeur.</p>
+        
+        <div style="text-align:center; padding:30px; border:2px dashed #ccc; border-radius:20px; margin-top:20px;">
+            <label style="font-weight:bold; display:block; margin-bottom:10px;">CODE LIVE</label>
+            <input id="input-live-code" type="text" placeholder="QZ-XXXX" style="text-align:center; font-size:2rem; letter-spacing:3px; text-transform:uppercase; max-width:300px;">
+            <button id="btn-join-live" class="btn primary" style="max-width:300px;">Rejoindre la salle</button>
+        </div>
+    </section>
+
+    <section id="view-editor" class="card hidden">
+        <div class="flex space-between">
+            <h2>Éditeur de Quiz</h2>
+            <button id="btn-close-editor" class="btn ghost" style="width:auto">Annuler</button>
+        </div>
+        <input id="edit-title" placeholder="Titre du Quiz">
+        <div id="edit-questions-list"></div>
+        <button id="btn-add-q" class="btn secondary small">+ Ajouter Question</button>
+        <button id="btn-save-quiz" class="btn primary" style="margin-top:20px">Enregistrer dans le Cloud</button>
+    </section>
+
+    <section id="view-live-host" class="card hidden" style="text-align:center">
+        <div class="flex space-between">
+            <div style="font-weight:bold; color:red">🔴 EN DIRECT</div>
+            <button id="btn-stop-live" class="btn ghost" style="width:auto; color:red; border-color:red">Arrêter</button>
+        </div>
+        
+        <div id="host-lobby">
+            <h3>Code de participation</h3>
+            <div id="host-code-display" class="live-code-box">...</div>
+            <p>En attente des élèves...</p>
+            <div id="host-player-count" style="font-size:1.2rem; font-weight:bold; margin-bottom:20px;">0 Joueurs</div>
+            <button id="btn-start-game" class="btn primary">Lancer le Quiz</button>
+        </div>
+
+        <div id="host-game" class="hidden">
+            <h3 id="host-q-text" style="font-size:1.5rem">Question...</h3>
+            <div id="host-stats" class="grid" style="margin-top:20px">
+                </div>
+            <button id="btn-next-q" class="btn primary" style="margin-top:30px">Question Suivante >></button>
+        </div>
+    </section>
+
+    <section id="view-live-player" class="card hidden" style="text-align:center">
+        <div id="player-waiting">
+            <h2>Tu es connecté !</h2>
+            <p>Regarde l'écran du professeur.</p>
+            <div class="loader">⏳ En attente du début...</div>
+        </div>
+
+        <div id="player-game" class="hidden">
+            <h3 id="player-q-text">Question</h3>
+            <div id="player-options" class="grid"></div>
+        </div>
+        
+        <div id="player-result" class="hidden">
+            <h2>Réponse envoyée !</h2>
+        </div>
+    </section>
+
+</div>
+
+<script type="module">
+// --- A. FIREBASE SETUP (AVEC TA CONFIG) ---
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-analytics.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getFirestore, collection, addDoc, getDocs, query, where, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBKhKfAjLnwB_6sLmxCfqqsQar3dui1uWg",
+  authDomain: "whatquiz-porf.firebaseapp.com",
+  projectId: "whatquiz-porf",
+  storageBucket: "whatquiz-porf.firebasestorage.app",
+  messagingSenderId: "845440438526",
+  appId: "1:845440438526:web:68fba6143ed4bee28895af",
+  measurementId: "G-E0LXVXWMRL"
+};
+
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// --- B. SOCKET.IO SETUP ---
+// Remplace localhost:3000 par ton URL serveur en production
+const SOCKET_URL = "http://localhost:3000"; 
+let socket = null;
+
+// --- C. UTILITIES ---
+const $ = id => document.getElementById(id);
+const toast = (msg) => {
+    const t = document.createElement('div'); t.className='toast'; t.innerText = msg;
+    $('toasts').appendChild(t); setTimeout(()=>t.remove(), 3000);
+}
+const showView = (viewId) => {
+    document.querySelectorAll('section').forEach(el => el.classList.add('hidden'));
+    $(viewId).classList.remove('hidden');
+}
+
+// --- D. STATE ---
+let currentUser = null; // { uid, role, name }
+let currentQuizDraft = { title: '', questions: [] };
+
+// --- E. AUTH LOGIC ---
+let isRegistering = false;
+
+$('tab-login').onclick = () => { isRegistering=false; updateAuthUI(); }
+$('tab-register').onclick = () => { isRegistering=true; updateAuthUI(); }
+
+function updateAuthUI() {
+    $('tab-login').className = isRegistering ? 'auth-tab' : 'auth-tab active';
+    $('tab-register').className = isRegistering ? 'auth-tab active' : 'auth-tab';
+    $('register-fields').classList.toggle('hidden', !isRegistering);
+}
+
+$('auth-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const email = $('auth-email').value;
+    const pass = $('auth-pass').value;
+    
+    try {
+        if(isRegistering) {
+            const name = $('auth-name').value;
+            const role = $('auth-role').value;
+            if(!name) return toast("Nom requis");
+            
+            const cred = await createUserWithEmailAndPassword(auth, email, pass);
+            await updateProfile(cred.user, { displayName: name });
+            // Stockage du rôle dans Firestore (indispensable pour la sécurité)
+            await setDoc(doc(db, "users", cred.user.uid), { 
+                role: role, 
+                name: name,
+                email: email
+            });
+            toast("Compte créé !");
+        } else {
+            await signInWithEmailAndPassword(auth, email, pass);
+            toast("Connexion réussie");
+        }
+    } catch(err) {
+        toast("Erreur: " + err.message);
+    }
+};
+
+$('btn-logout').onclick = () => signOut(auth);
+
+// --- F. ROUTING & DATA LOADING ---
+onAuthStateChanged(auth, async (user) => {
+    if(user) {
+        $('btn-logout').classList.remove('hidden');
+        $('view-auth').classList.add('hidden');
+        
+        // Récupérer le rôle
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        const userData = userDoc.exists() ? userDoc.data() : { role: 'student' };
+        
+        currentUser = { uid: user.uid, ...userData };
+        
+        if(currentUser.role === 'teacher') {
+            showView('view-teacher');
+            $('teacher-name-display').innerText = currentUser.name || user.email;
+            loadTeacherQuizzes();
+        } else {
+            showView('view-student');
+        }
+    } else {
+        currentUser = null;
+        $('btn-logout').classList.add('hidden');
+        showView('view-auth');
+    }
+});
+
+// --- G. TEACHER: QUIZ MANAGEMENT ---
+async function loadTeacherQuizzes() {
+    const q = query(collection(db, "quizzes"), where("ownerId", "==", currentUser.uid));
+    const querySnapshot = await getDocs(q);
+    const list = $('teacher-quiz-list');
+    list.innerHTML = '';
+    
+    if(querySnapshot.empty) { list.innerHTML = '<p class="muted">Aucun quiz. Créez-en un !</p>'; return; }
+
+    querySnapshot.forEach((docSnap) => {
+        const quiz = docSnap.data();
+        const div = document.createElement('div');
+        div.className = 'card flex space-between';
+        div.style.marginBottom = '10px';
+        div.innerHTML = `
+            <div><strong>${quiz.title}</strong> (${quiz.questions.length} questions)</div>
+            <button class="btn primary small" style="width:auto">Lancer Live</button>
+        `;
+        div.querySelector('button').onclick = () => startLive(docSnap.id, quiz);
+        list.appendChild(div);
+    });
+}
+
+$('btn-create-quiz').onclick = () => {
+    currentQuizDraft = { title: '', questions: [] };
+    renderEditor();
+    showView('view-editor');
+}
+$('btn-close-editor').onclick = () => showView('view-teacher');
+$('btn-add-q').onclick = () => {
+    currentQuizDraft.questions.push({ question: '', answers: ['','','',''], correct: [0] });
+    renderEditor();
+}
+
+function renderEditor() {
+    $('edit-title').value = currentQuizDraft.title;
+    $('edit-title').oninput = (e) => currentQuizDraft.title = e.target.value;
+    
+    const list = $('edit-questions-list'); list.innerHTML = '';
+    currentQuizDraft.questions.forEach((q, idx) => {
+        const el = document.createElement('div');
+        el.className = 'card';
+        el.innerHTML = `
+            <div style="font-weight:bold; margin-bottom:5px">Question ${idx+1}</div>
+            <input placeholder="La question ?" value="${q.question}" class="inp-q">
+            <div class="grid">
+                ${q.answers.map((a, aid) => `<input placeholder="Rép ${aid+1}" value="${a}" class="inp-a" data-aid="${aid}">`).join('')}
+            </div>
+            <label>Index Réponse Correcte (0-3): <input type="number" min="0" max="3" value="${q.correct[0]}" class="inp-c"></label>
+        `;
+        
+        // Bindings simples
+        el.querySelector('.inp-q').oninput = e => q.question = e.target.value;
+        el.querySelectorAll('.inp-a').forEach(inp => {
+            inp.oninput = e => q.answers[inp.dataset.aid] = e.target.value;
+        });
+        el.querySelector('.inp-c').oninput = e => q.correct = [parseInt(e.target.value)];
+        
+        list.appendChild(el);
+    });
+}
+
+$('btn-save-quiz').onclick = async () => {
+    if(!currentQuizDraft.title) return toast("Titre manquant");
+    try {
+        await addDoc(collection(db, "quizzes"), {
+            ...currentQuizDraft,
+            ownerId: currentUser.uid,
+            createdAt: new Date()
+        });
+        toast("Quiz sauvegardé !");
+        showView('view-teacher');
+        loadTeacherQuizzes();
+    } catch(e) { toast("Erreur save: " + e.message); }
+};
+
+// --- H. LIVE: TEACHER (HOST) ---
+function initSocketConnection() {
+    if(!socket) socket = io(SOCKET_URL);
+    return socket;
+}
+
+async function startLive(quizId, quizData) {
+    initSocketConnection();
+    showView('view-live-host');
+    
+    // Créer la room
+    socket.emit('create_live', quizData);
+    
+    socket.on('live_created', ({ code }) => {
+        $('host-code-display').innerText = code;
+    });
+    
+    socket.on('player_update', (players) => {
+        $('host-player-count').innerText = `${players.length} Joueurs`;
+    });
+    
+    socket.on('answer_received', ({ playerName, isCorrect }) => {
+        toast(`${playerName} a répondu !`);
+    });
+    
+    socket.on('host_question', (q) => {
+        $('host-lobby').classList.add('hidden');
+        $('host-game').classList.remove('hidden');
+        $('host-q-text').innerText = q.question;
+        $('btn-next-q').innerText = "Question Suivante";
+    });
+
+    socket.on('game_finished', ({ leaderboard }) => {
+        $('host-q-text').innerText = "FIN DU QUIZ - CLASSEMENT";
+        let html = "";
+        leaderboard.forEach((p, i) => html += `<div>#${i+1} ${p.name} - ${p.score} pts</div>`);
+        $('host-stats').innerHTML = html;
+        $('btn-next-q').classList.add('hidden');
+    });
+}
+
+$('btn-start-game').onclick = () => {
+    const code = $('host-code-display').innerText;
+    socket.emit('start_game', { code });
+}
+$('btn-next-q').onclick = () => {
+    const code = $('host-code-display').innerText;
+    socket.emit('next_question', { code });
+}
+$('btn-stop-live').onclick = () => {
+    const code = $('host-code-display').innerText;
+    if(socket) socket.emit('end_live', { code });
+    location.reload();
+}
+
+// --- I. LIVE: STUDENT (PLAYER) ---
+$('btn-join-live').onclick = () => {
+    const code = $('input-live-code').value.toUpperCase();
+    if(code.length < 5) return toast("Code invalide");
+    
+    initSocketConnection();
+    socket.emit('join_game', { code, playerName: currentUser.name || "Élève" });
+    
+    socket.on('error_msg', (msg) => toast(msg));
+    
+    socket.on('joined_success', ({ title }) => {
+        showView('view-live-player');
+        $('player-waiting').querySelector('h2').innerText = `Connecté à: ${title}`;
+    });
+    
+    socket.on('question_dispatch', (q) => {
+        // Seulement si pas host (filtre basique, serveur fait le tri normalement)
+        if(currentUser.role === 'teacher') return; 
+
+        $('player-waiting').classList.add('hidden');
+        $('player-result').classList.add('hidden');
+        $('player-game').classList.remove('hidden');
+        
+        $('player-q-text').innerText = q.question;
+        const opts = $('player-options'); opts.innerHTML = '';
+        
+        q.answers.forEach((ans, idx) => {
+            const btn = document.createElement('button');
+            btn.className = 'answer-btn';
+            btn.innerText = ans;
+            btn.onclick = () => {
+                socket.emit('submit_answer', { code, answerIndex: idx });
+                $('player-game').classList.add('hidden');
+                $('player-result').classList.remove('hidden');
+            };
+            opts.appendChild(btn);
+        });
+    });
+    
+    socket.on('session_closed', () => {
+        alert("Le prof a fermé la salle.");
+        location.reload();
+    });
+};
+
+</script>
+</body>
+</html>
